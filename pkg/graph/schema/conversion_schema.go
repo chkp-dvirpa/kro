@@ -69,7 +69,7 @@ func ConvertJSONSchemaPropsToSpecSchema(props *extv1.JSONSchemaProps) (*spec.Sch
 			ExternalDocs: externalDocs,
 		},
 		VendorExtensible: spec.VendorExtensible{
-			Extensions: nil,
+			Extensions: props.Extensions,
 		},
 	}
 
