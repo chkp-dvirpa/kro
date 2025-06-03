@@ -17,6 +17,7 @@ package graph
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types/ref"
@@ -40,6 +41,7 @@ import (
 	"github.com/kro-run/kro/pkg/graph/variable"
 	"github.com/kro-run/kro/pkg/metadata"
 	"github.com/kro-run/kro/pkg/simpleschema"
+	simpleschema "github.com/kro-run/kro/pkg/simpleschema"
 )
 
 // NewBuilder creates a new GraphBuilder instance.
@@ -470,7 +472,7 @@ func (b *Builder) buildInstanceResource(
 	gvk := metadata.GetResourceGraphDefinitionInstanceGVK(group, apiVersion, kind)
 
 	// The instance resource has a schema defined using the "SimpleSchema" format.
-	instanceSpecSchema, err := buildInstanceSpecSchema(rgDefinition)
+	instanceSpecSchema, specDefaultVars, err := buildInstanceSpecSchema(rgDefinition)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build OpenAPI schema for instance: %w", err)
 	}
@@ -532,14 +534,21 @@ func (b *Builder) buildInstanceResource(
 		})
 	}
 
-	instance.variables = instanceStatusVariables
+	allVars := append([]*variable.ResourceField{}, instanceStatusVariables...)
+	for _, def := range specDefaultVars {
+		allVars = append(allVars, &variable.ResourceField{
+			FieldDescriptor: def,
+			Kind:            variable.ResourceVariableKindStatic,
+		})
+	}
+	instance.variables = allVars
 	return instance, nil
 }
 
 // buildInstanceSpecSchema builds the instance spec schema that will be
 // used to generate the CRD for the instance resource. The instance spec
 // schema is expected to be defined using the "SimpleSchema" format.
-func buildInstanceSpecSchema(rgSchema *v1alpha1.Schema) (*extv1.JSONSchemaProps, error) {
+func buildInstanceSpecSchema(rgSchema *v1alpha1.Schema) (*extv1.JSONSchemaProps, []variable.FieldDescriptor, error) {
 	// We need to unmarshal the instance schema to a map[string]interface{} to
 	// make it easier to work with.
 	instanceSpec := map[string]interface{}{}
@@ -571,7 +580,40 @@ func buildInstanceSpecSchema(rgSchema *v1alpha1.Schema) (*extv1.JSONSchemaProps,
 		}
 	}
 
-	return instanceSchema, nil
+	defaults := collectDefaultVariablesFromJSONSchema(instanceSchema, "spec")
+	return instanceSchema, defaults, nil
+}
+
+func collectDefaultVariablesFromJSONSchema(js *extv1.JSONSchemaProps, path string) []variable.FieldDescriptor {
+	vars := []variable.FieldDescriptor{}
+	if js == nil {
+		return vars
+	}
+	if exprRaw, ok := js.Extensions[simpleschema.DefaultExpressionExtension]; ok {
+		if expr, ok2 := exprRaw.(string); ok2 {
+			vars = append(vars, variable.FieldDescriptor{
+				Path:                 path,
+				Expressions:          []string{expr},
+				ExpectedTypes:        []string{js.Type},
+				StandaloneExpression: true,
+			})
+		}
+	}
+	for k, v := range js.Properties {
+		childPath := joinPathAndFieldName(path, k)
+		vars = append(vars, collectDefaultVariablesFromJSONSchema(&v, childPath)...)
+	}
+	return vars
+}
+
+func joinPathAndFieldName(path, fieldName string) string {
+	if fieldName == "" || strings.Contains(fieldName, ".") {
+		return fmt.Sprintf("%s[%q]", path, fieldName)
+	}
+	if path == "" {
+		return fieldName
+	}
+	return fmt.Sprintf("%s.%s", path, fieldName)
 }
 
 // buildStatusSchema builds the status schema for the instance resource. The

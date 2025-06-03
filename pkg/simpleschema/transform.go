@@ -23,6 +23,8 @@ import (
 	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
 
+const DefaultExpressionExtension = "x-kro-default-expression"
+
 // A predefined type is a type that is predefined in the schema.
 // It is used to resolve references in the schema, while capturing the fact
 // whether the type has the required marker set (this information would
@@ -213,6 +215,14 @@ func (tf *transformer) applyMarkers(schema *extv1.JSONSchemaProps, markers []*Ma
 				parentSchema.Required = append(parentSchema.Required, key)
 			}
 		case MarkerTypeDefault:
+			if strings.HasPrefix(marker.Value, "${") && strings.HasSuffix(marker.Value, "}") {
+				if schema.Extensions == nil {
+					schema.Extensions = map[string]interface{}{}
+				}
+				expr := strings.TrimSuffix(strings.TrimPrefix(marker.Value, "${"), "}")
+				schema.Extensions[DefaultExpressionExtension] = expr
+				continue
+			}
 			var defaultValue []byte
 			switch schema.Type {
 			case "string":

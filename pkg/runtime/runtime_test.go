@@ -1802,6 +1802,38 @@ func Test_evaluateInstanceStatuses(t *testing.T) {
 			},
 		},
 		{
+			name: "spec default variable",
+			instance: newTestResource(
+				withObject(map[string]interface{}{
+					"spec": map[string]interface{}{
+						"namespace": "dev",
+					},
+				}),
+				withVariables([]*variable.ResourceField{
+					{
+						FieldDescriptor: variable.FieldDescriptor{
+							Path:                 "spec.name",
+							Expressions:          []string{"schema.spec.namespace"},
+							StandaloneExpression: true,
+						},
+					},
+				}),
+			),
+			expCache: map[string]*expressionEvaluationState{
+				"schema.spec.namespace": {
+					Expression:    "schema.spec.namespace",
+					Resolved:      true,
+					ResolvedValue: "dev",
+				},
+			},
+			wantObj: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"namespace": "dev",
+					"name":      "dev",
+				},
+			},
+		},
+		{
 			name: "blind resolution - partially resolved",
 			instance: newTestResource(
 				withObject(map[string]interface{}{
